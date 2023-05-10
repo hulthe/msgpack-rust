@@ -112,6 +112,8 @@ mod sealed{
     impl Sealed for &mut [u8] {}
     #[cfg(not(feature = "std"))]
     impl Sealed for alloc::vec::Vec<u8> {}
+    #[cfg(not(feature = "std"))]
+    impl<S: Sealed> Sealed for &mut S {}
     impl Sealed for super::ByteBuf {}
 }
 
@@ -194,10 +196,20 @@ impl<T: std::io::Write> RmpWrite for T {
     }
 }
 
+#[cfg(not(feature = "std"))]
+impl<T: RmpWrite> RmpWrite for &mut T {
+    type Error = T::Error;
+
+    #[inline]
+    fn write_bytes(&mut self, buf: &[u8]) -> Result<(), Self::Error> {
+        T::write_bytes(self, buf)
+    }
+}
+
 /// An error that can occur when attempting to write multi-byte MessagePack value.
 #[derive(Debug)]
 #[allow(deprecated)] // TODO: Needed for compatibility
-pub enum ValueWriteError<E: RmpWriteErr = Error> {
+pub enum ValueWriteError<E = Error> {
     /// I/O error while writing marker.
     InvalidMarkerWrite(E),
     /// I/O error while writing data.
@@ -244,7 +256,7 @@ impl<E: RmpWriteErr> error::Error for ValueWriteError<E> {
     }
 }
 
-impl<E: RmpWriteErr> Display for ValueWriteError<E> {
+impl<E> Display for ValueWriteError<E> {
     #[cold]
     fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), fmt::Error> {
         f.write_str("error while writing multi-byte MessagePack value")

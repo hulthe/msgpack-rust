@@ -1,11 +1,13 @@
 //! Generic MessagePack deserialization.
 
-use std::convert::TryInto;
-use std::error;
-use std::fmt::{self, Display, Formatter};
-use std::io::{self, Cursor, ErrorKind, Read};
-use std::num::TryFromIntError;
-use std::str::{self, Utf8Error};
+use core::convert::TryInto;
+use core::fmt::{self, Display, Formatter};
+use core::io::{self, Cursor, ErrorKind, Read};
+use core::num::TryFromIntError;
+use core::str::{self, Utf8Error};
+
+#[cfg(feature = "std")]
+use core::error;
 
 use byteorder::{self, ReadBytesExt};
 
@@ -60,6 +62,7 @@ macro_rules! depth_count(
     }
 );
 
+#[cfg(feature = "std")]
 impl error::Error for Error {
     #[cold]
     fn source(&self) -> Option<&(dyn error::Error + 'static)> {

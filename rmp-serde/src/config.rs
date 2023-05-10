@@ -1,5 +1,5 @@
 //! Change MessagePack behavior with configuration wrappers.
-use rmp::encode;
+use rmp::encode::{self, RmpWrite};
 use serde::{Serialize, Serializer};
 
 use crate::encode::{Error, UnderlyingWrite};
@@ -13,6 +13,7 @@ pub trait SerializerConfig: sealed::SerializerConfig {}
 impl<T: sealed::SerializerConfig> SerializerConfig for T {}
 
 mod sealed {
+    use rmp::encode::RmpWrite;
     use serde::{Serialize, Serializer};
 
     use crate::encode::{Error, UnderlyingWrite};
@@ -22,15 +23,15 @@ mod sealed {
     /// This hack disallows external implementations and usage of SerializerConfig and thus
     /// allows us to change SerializerConfig methods freely without breaking backwards compatibility.
     pub trait SerializerConfig: Copy {
-        fn write_struct_len<S>(ser: &mut S, len: usize) -> Result<(), Error>
+        fn write_struct_len<S>(ser: &mut S, len: usize) -> Result<(), Error<<S::Write as RmpWrite>::Error>>
         where
             S: UnderlyingWrite,
-            for<'a> &'a mut S: Serializer<Ok = (), Error = Error>;
+            for<'a> &'a mut S: Serializer<Ok = (), Error = Error<<S::Write as RmpWrite>::Error>>;
 
-        fn write_struct_field<S, T>(ser: &mut S, key: &'static str, value: &T) -> Result<(), Error>
+        fn write_struct_field<S, T>(ser: &mut S, key: &'static str, value: &T) -> Result<(), Error<<S::Write as RmpWrite>::Error>>
         where
             S: UnderlyingWrite,
-            for<'a> &'a mut S: Serializer<Ok = (), Error = Error>,
+            for<'a> &'a mut S: Serializer<Ok = (), Error = Error<<S::Write as RmpWrite>::Error>>,
             T: ?Sized + Serialize;
 
         /// Encodes an enum variant ident (id or name) according to underlying writer.
@@ -40,10 +41,10 @@ mod sealed {
             ser: &mut S,
             variant_index: u32,
             variant: &'static str,
-        ) -> Result<(), Error>
+        ) -> Result<(), Error<<S::Write as RmpWrite>::Error>>
         where
             S: UnderlyingWrite,
-            for<'a> &'a mut S: Serializer<Ok = (), Error = Error>;
+            for<'a> &'a mut S: Serializer<Ok = (), Error = Error<<S::Write as RmpWrite>::Error>>;
 
         /// Determines the value of `Serializer::is_human_readable` and
         /// `Deserializer::is_human_readable`.
@@ -60,13 +61,14 @@ mod sealed {
 //
 /// This is the most compact representation.
 #[derive(Copy, Clone, Debug)]
-pub struct DefaultConfig;
+pub
+struct DefaultConfig;
 
 impl sealed::SerializerConfig for DefaultConfig {
-    fn write_struct_len<S>(ser: &mut S, len: usize) -> Result<(), Error>
+    fn write_struct_len<S>(ser: &mut S, len: usize) -> Result<(), Error<<S::Write as RmpWrite>::Error>>
     where
         S: UnderlyingWrite,
-        for<'a> &'a mut S: Serializer<Ok = (), Error = Error>,
+        for<'a> &'a mut S: Serializer<Ok = (), Error = Error<<S::Write as RmpWrite>::Error>>,
     {
         encode::write_array_len(ser.get_mut(), len as u32)?;
 
@@ -74,10 +76,10 @@ impl sealed::SerializerConfig for DefaultConfig {
     }
 
     #[inline]
-    fn write_struct_field<S, T>(ser: &mut S, _key: &'static str, value: &T) -> Result<(), Error>
+    fn write_struct_field<S, T>(ser: &mut S, _key: &'static str, value: &T) -> Result<(), Error<<S::Write as RmpWrite>::Error>>
     where
         S: UnderlyingWrite,
-        for<'a> &'a mut S: Serializer<Ok = (), Error = Error>,
+        for<'a> &'a mut S: Serializer<Ok = (), Error = Error<<S::Write as RmpWrite>::Error>>,
         T: ?Sized + Serialize,
     {
         value.serialize(ser)
@@ -88,10 +90,10 @@ impl sealed::SerializerConfig for DefaultConfig {
         ser: &mut S,
         _variant_index: u32,
         variant: &'static str,
-    ) -> Result<(), Error>
+    ) -> Result<(), Error<<S::Write as RmpWrite>::Error>>
     where
         S: UnderlyingWrite,
-        for<'a> &'a mut S: Serializer<Ok = (), Error = Error>,
+        for<'a> &'a mut S: Serializer<Ok = (), Error = Error<<S::Write as RmpWrite>::Error>>,
     {
         ser.serialize_str(variant)
     }
@@ -124,20 +126,20 @@ impl<C> sealed::SerializerConfig for StructMapConfig<C>
 where
     C: sealed::SerializerConfig,
 {
-    fn write_struct_len<S>(ser: &mut S, len: usize) -> Result<(), Error>
+    fn write_struct_len<S>(ser: &mut S, len: usize) -> Result<(), Error<<S::Write as RmpWrite>::Error>>
     where
         S: UnderlyingWrite,
-        for<'a> &'a mut S: Serializer<Ok = (), Error = Error>,
+        for<'a> &'a mut S: Serializer<Ok = (), Error = Error<<S::Write as RmpWrite>::Error>>,
     {
         encode::write_map_len(ser.get_mut(), len as u32)?;
 
         Ok(())
     }
 
-    fn write_struct_field<S, T>(ser: &mut S, key: &'static str, value: &T) -> Result<(), Error>
+    fn write_struct_field<S, T>(ser: &mut S, key: &'static str, value: &T) -> Result<(), Error<<S::Write as RmpWrite>::Error>>
     where
         S: UnderlyingWrite,
-        for<'a> &'a mut S: Serializer<Ok = (), Error = Error>,
+        for<'a> &'a mut S: Serializer<Ok = (), Error = Error<<S::Write as RmpWrite>::Error>>,
         T: ?Sized + Serialize,
     {
         encode::write_str(ser.get_mut(), key)?;
@@ -149,10 +151,10 @@ where
         ser: &mut S,
         variant_index: u32,
         variant: &'static str,
-    ) -> Result<(), Error>
+    ) -> Result<(), Error<<S::Write as RmpWrite>::Error>>
     where
         S: UnderlyingWrite,
-        for<'a> &'a mut S: Serializer<Ok = (), Error = Error>,
+        for<'a> &'a mut S: Serializer<Ok = (), Error = Error<<S::Write as RmpWrite>::Error>>,
     {
         C::write_variant_ident(ser, variant_index, variant)
     }
@@ -180,10 +182,10 @@ impl<C> sealed::SerializerConfig for StructTupleConfig<C>
 where
     C: sealed::SerializerConfig,
 {
-    fn write_struct_len<S>(ser: &mut S, len: usize) -> Result<(), Error>
+    fn write_struct_len<S>(ser: &mut S, len: usize) -> Result<(), Error<<S::Write as RmpWrite>::Error>>
     where
         S: UnderlyingWrite,
-        for<'a> &'a mut S: Serializer<Ok = (), Error = Error>,
+        for<'a> &'a mut S: Serializer<Ok = (), Error = Error<<S::Write as RmpWrite>::Error>>,
     {
         encode::write_array_len(ser.get_mut(), len as u32)?;
 
@@ -191,10 +193,10 @@ where
     }
 
     #[inline]
-    fn write_struct_field<S, T>(ser: &mut S, _key: &'static str, value: &T) -> Result<(), Error>
+    fn write_struct_field<S, T>(ser: &mut S, _key: &'static str, value: &T) -> Result<(), Error<<S::Write as RmpWrite>::Error>>
     where
         S: UnderlyingWrite,
-        for<'a> &'a mut S: Serializer<Ok = (), Error = Error>,
+        for<'a> &'a mut S: Serializer<Ok = (), Error = Error<<S::Write as RmpWrite>::Error>>,
         T: ?Sized + Serialize,
     {
         value.serialize(ser)
@@ -205,10 +207,10 @@ where
         ser: &mut S,
         variant_index: u32,
         variant: &'static str,
-    ) -> Result<(), Error>
+    ) -> Result<(), Error<<S::Write as RmpWrite>::Error>>
     where
         S: UnderlyingWrite,
-        for<'a> &'a mut S: Serializer<Ok = (), Error = Error>,
+        for<'a> &'a mut S: Serializer<Ok = (), Error = Error<<S::Write as RmpWrite>::Error>>,
     {
         C::write_variant_ident(ser, variant_index, variant)
     }
@@ -237,19 +239,19 @@ where
     C: sealed::SerializerConfig,
 {
     #[inline]
-    fn write_struct_len<S>(ser: &mut S, len: usize) -> Result<(), Error>
+    fn write_struct_len<S>(ser: &mut S, len: usize) -> Result<(), Error<<S::Write as RmpWrite>::Error>>
     where
         S: UnderlyingWrite,
-        for<'a> &'a mut S: Serializer<Ok = (), Error = Error>,
+        for<'a> &'a mut S: Serializer<Ok = (), Error = Error<<S::Write as RmpWrite>::Error>>,
     {
         C::write_struct_len(ser, len)
     }
 
     #[inline]
-    fn write_struct_field<S, T>(ser: &mut S, key: &'static str, value: &T) -> Result<(), Error>
+    fn write_struct_field<S, T>(ser: &mut S, key: &'static str, value: &T) -> Result<(), Error<<S::Write as RmpWrite>::Error>>
     where
         S: UnderlyingWrite,
-        for<'a> &'a mut S: Serializer<Ok = (), Error = Error>,
+        for<'a> &'a mut S: Serializer<Ok = (), Error = Error<<S::Write as RmpWrite>::Error>>,
         T: ?Sized + Serialize,
     {
         C::write_struct_field(ser, key, value)
@@ -260,10 +262,10 @@ where
         ser: &mut S,
         variant_index: u32,
         variant: &'static str,
-    ) -> Result<(), Error>
+    ) -> Result<(), Error<<S::Write as RmpWrite>::Error>>
     where
         S: UnderlyingWrite,
-        for<'a> &'a mut S: Serializer<Ok = (), Error = Error>,
+        for<'a> &'a mut S: Serializer<Ok = (), Error = Error<<S::Write as RmpWrite>::Error>>,
     {
         C::write_variant_ident(ser, variant_index, variant)
     }
@@ -292,19 +294,19 @@ where
     C: sealed::SerializerConfig,
 {
     #[inline]
-    fn write_struct_len<S>(ser: &mut S, len: usize) -> Result<(), Error>
+    fn write_struct_len<S>(ser: &mut S, len: usize) -> Result<(), Error<<S::Write as RmpWrite>::Error>>
     where
         S: UnderlyingWrite,
-        for<'a> &'a mut S: Serializer<Ok = (), Error = Error>,
+        for<'a> &'a mut S: Serializer<Ok = (), Error = Error<<S::Write as RmpWrite>::Error>>,
     {
         C::write_struct_len(ser, len)
     }
 
     #[inline]
-    fn write_struct_field<S, T>(ser: &mut S, key: &'static str, value: &T) -> Result<(), Error>
+    fn write_struct_field<S, T>(ser: &mut S, key: &'static str, value: &T) -> Result<(), Error<<S::Write as RmpWrite>::Error>>
     where
         S: UnderlyingWrite,
-        for<'a> &'a mut S: Serializer<Ok = (), Error = Error>,
+        for<'a> &'a mut S: Serializer<Ok = (), Error = Error<<S::Write as RmpWrite>::Error>>,
         T: ?Sized + Serialize,
     {
         C::write_struct_field(ser, key, value)
@@ -315,10 +317,10 @@ where
         ser: &mut S,
         variant_index: u32,
         variant: &'static str,
-    ) -> Result<(), Error>
+    ) -> Result<(), Error<<S::Write as RmpWrite>::Error>>
     where
         S: UnderlyingWrite,
-        for<'a> &'a mut S: Serializer<Ok = (), Error = Error>,
+        for<'a> &'a mut S: Serializer<Ok = (), Error = Error<<S::Write as RmpWrite>::Error>>,
     {
         C::write_variant_ident(ser, variant_index, variant)
     }

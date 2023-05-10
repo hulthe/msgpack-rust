@@ -9,20 +9,24 @@ documentation = "https://docs.rs/rmp-serde"
 readme = "README.md"
 keywords = ["msgpack", "MessagePack", "serde", "serialization"]
 categories = ["encoding"]
-edition = "2018"
+edition = "2021"
+resolver = "2"
 
 [package.metadata.release]
 tag-prefix = "{{crate_name}}/"
 
 [dependencies]
 byteorder = "1.4.3"
-serde = "1.0.136"
-rmp = { version = "0.8.11", path = "../rmp" }
+rmp = { version = "0.8.11", path = "../rmp", default-features = false }
+serde = { version = "1.0.136", default-features = false }
 
 [dev-dependencies]
 rmpv = { path = "../rmpv" }
-serde_bytes = "0.11.5"
+serde_bytes = { version = "0.11.5", default-features = false }
 serde_derive = "1.0.136"
 
 [badges]
 maintenance = { status = "passively-maintained" }
+
+[features]
+std = ["serde/std", "rmp/std", "serde_bytes/std"]

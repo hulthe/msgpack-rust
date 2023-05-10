@@ -56,25 +56,25 @@
 //!
 //! [serde]: https://serde.rs/
 #![forbid(unsafe_code)]
-#![warn(missing_debug_implementations, missing_docs)]
+//#![warn(missing_debug_implementations, missing_docs)] // TODO
+#![cfg_attr(not(feature = "std"), no_std)]
 
-#[macro_use]
-extern crate serde;
-
-use std::fmt::{self, Display, Formatter};
-use std::str::{self, Utf8Error};
+use core::fmt::{self, Display, Formatter};
+use core::str::{self, Utf8Error};
 
 use serde::de;
 use serde::{Deserialize, Serialize};
 
-pub use crate::decode::{from_read, Deserializer};
+#[cfg(feature = "std")]
+pub use crate::decode::{from_slice, from_read, Deserializer};
 #[allow(deprecated)]
+#[cfg(feature = "std")]
 pub use crate::decode::from_read_ref;
+#[cfg(feature = "std")]
 pub use crate::encode::{to_vec, to_vec_named, Serializer};
 
-pub use crate::decode::from_slice;
-
 pub mod config;
+#[cfg(feature = "std")]
 pub mod decode;
 pub mod encode;
 
@@ -97,12 +97,30 @@ pub const MSGPACK_EXT_STRUCT_NAME: &str = "_ExtStruct";
 /// invalid UTF-8.
 ///
 /// Regardless of validity the UTF-8 content this type will always be serialized as a string.
+#[cfg(feature = "std")]
 #[derive(Clone, Debug, PartialEq)]
 #[doc(hidden)]
 pub struct Raw {
     s: Result<String, (Vec<u8>, Utf8Error)>,
 }
 
+#[cfg(not(feature = "std"))]
+#[derive(Clone, Debug, PartialEq)]
+#[doc(hidden)]
+pub struct Raw<'a> {
+    s: Result<&'a str, (&'a [u8], Utf8Error)>,
+}
+
+#[cfg(not(feature = "std"))]
+impl<'a> Raw<'a> {
+    /// Constructs a new `Raw` from the UTF-8 string.
+    #[inline]
+    pub fn new(v: &'a str) -> Self {
+        Self { s: Ok(v) }
+    }
+}
+
+#[cfg(feature = "std")]
 impl Raw {
     /// Constructs a new `Raw` from the UTF-8 string.
     #[inline]
@@ -123,7 +141,9 @@ impl Raw {
             }
         }
     }
+}
 
+impl Raw<'_> {
     /// Returns `true` if the raw is valid UTF-8.
     #[inline]
     pub fn is_str(&self) -> bool {
@@ -140,7 +160,10 @@ impl Raw {
     #[inline]
     pub fn as_str(&self) -> Option<&str> {
         match self.s {
+            #[cfg(feature = "std")]
             Ok(ref s) => Some(s.as_str()),
+            #[cfg(not(feature = "std"))]
+            Ok(s) => Some(s),
             Err(..) => None,
         }
     }
@@ -165,12 +188,14 @@ impl Raw {
     }
 
     /// Consumes this object, yielding the string if the raw is valid UTF-8, or else `None`.
+    #[cfg(feature = "std")]
     #[inline]
     pub fn into_str(self) -> Option<String> {
         self.s.ok()
     }
 
     /// Converts a `Raw` into a byte vector.
+    #[cfg(feature = "std")]
     #[inline]
     pub fn into_bytes(self) -> Vec<u8> {
         match self.s {
@@ -180,7 +205,7 @@ impl Raw {
     }
 }
 
-impl Serialize for Raw {
+impl Serialize for Raw<'_> {
     fn serialize<S>(&self, se: S) -> Result<S::Ok, S::Error>
     where
         S: serde::Serializer
@@ -195,18 +220,20 @@ impl Serialize for Raw {
 struct RawVisitor;
 
 impl<'de> de::Visitor<'de> for RawVisitor {
-    type Value = Raw;
+    type Value = Raw<'de>;
 
     #[cold]
     fn expecting(&self, fmt: &mut Formatter<'_>) -> Result<(), fmt::Error> {
         "string or bytes".fmt(fmt)
     }
 
+    #[cfg(feature = "std")]
     #[inline]
     fn visit_string<E>(self, v: String) -> Result<Self::Value, E> {
         Ok(Raw { s: Ok(v) })
     }
 
+    #[cfg(feature = "std")]
     #[inline]
     fn visit_str<E>(self, v: &str) -> Result<Self::Value, E>
         where E: de::Error
@@ -214,6 +241,13 @@ impl<'de> de::Visitor<'de> for RawVisitor {
         Ok(Raw { s: Ok(v.into()) })
     }
 
+    fn visit_borrowed_str<E>(self, v: &'de str) -> Result<Self::Value, E>
+        where
+            E: de::Error, {
+        Ok(Raw { s: Ok(v) })
+    }
+
+    #[cfg(feature = "std")]
     #[inline]
     fn visit_bytes<E>(self, v: &[u8]) -> Result<Self::Value, E>
         where E: de::Error
@@ -226,6 +260,19 @@ impl<'de> de::Visitor<'de> for RawVisitor {
         Ok(Raw { s })
     }
 
+    fn visit_borrowed_bytes<E>(self, v: &'de [u8]) -> Result<Self::Value, E>
+        where
+            E: de::Error, {
+        
+        let s = match str::from_utf8(v) {
+            Ok(s) => Ok(s),
+            Err(err) => Err((v, err)),
+        };
+
+        Ok(Raw { s })
+    }
+
+    #[cfg(feature = "std")]
     #[inline]
     fn visit_byte_buf<E>(self, v: Vec<u8>) -> Result<Self::Value, E>
         where E: de::Error
@@ -242,7 +289,7 @@ impl<'de> de::Visitor<'de> for RawVisitor {
     }
 }
 
-impl<'de> Deserialize<'de> for Raw {
+impl<'de> Deserialize<'de> for Raw<'de> {
     #[inline]
     fn deserialize<D>(de: D) -> Result<Self, D::Error>
         where D: de::Deserializer<'de>
