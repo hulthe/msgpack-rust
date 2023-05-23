@@ -5,3 +5,5 @@ members = [
     "rmpv",
     "rmpv-tests"
 ]
+
+resolver = "2"

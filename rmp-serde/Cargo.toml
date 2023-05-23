@@ -10,7 +10,6 @@ readme = "README.md"
 keywords = ["msgpack", "MessagePack", "serde", "serialization"]
 categories = ["encoding"]
 edition = "2021"
-resolver = "2"
 
 [package.metadata.release]
 tag-prefix = "{{crate_name}}/"
