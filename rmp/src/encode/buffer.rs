@@ -4,6 +4,9 @@ use super::RmpWrite;
 #[cfg(not(feature = "std"))]
 use core::fmt::{self, Display, Formatter};
 
+#[cfg(feature = "alloc")]
+use alloc::vec::Vec;
+
 /// An error returned from writing to `&mut [u8]` (a byte buffer of fixed capacity) on no_std
 ///
 /// In feature="std", capacity overflow in `<&mut [u8] as std::io::Write>::write_exact()`
@@ -76,12 +79,12 @@ impl<'a> RmpWrite for &'a mut [u8] {
 /// This has the additional benefit of working on `#[no_std]`
 ///
 /// See also [serde_bytes::ByteBuf](https://docs.rs/serde_bytes/0.11/serde_bytes/struct.ByteBuf.html)
-#[cfg(feature = "std")]
+#[cfg(feature = "alloc")]
 #[derive(Debug, Clone, Default, Eq, PartialEq, Hash, Ord, PartialOrd)]
 pub struct ByteBuf {
     bytes: Vec<u8>,
 }
-#[cfg(feature = "std")]
+#[cfg(feature = "alloc")]
 impl ByteBuf {
     /// Construct a new empty buffer
     #[inline]
@@ -121,34 +124,34 @@ impl ByteBuf {
         &self.bytes
     }
 }
-#[cfg(feature = "std")]
+#[cfg(feature = "alloc")]
 impl AsRef<[u8]> for ByteBuf {
     fn as_ref(&self) -> &[u8] {
         &self.bytes
     }
 }
-#[cfg(feature = "std")]
+#[cfg(feature = "alloc")]
 impl AsRef<Vec<u8>> for ByteBuf {
     #[inline]
     fn as_ref(&self) -> &Vec<u8> {
         &self.bytes
     }
 }
-#[cfg(feature = "std")]
+#[cfg(feature = "alloc")]
 impl AsMut<Vec<u8>> for ByteBuf {
     #[inline]
     fn as_mut(&mut self) -> &mut Vec<u8> {
         &mut self.bytes
     }
 }
-#[cfg(feature = "std")]
+#[cfg(feature = "alloc")]
 impl From<ByteBuf> for Vec<u8> {
     #[inline]
     fn from(buf: ByteBuf) -> Self {
         buf.bytes
     }
 }
-#[cfg(feature = "std")]
+#[cfg(feature = "alloc")]
 impl From<Vec<u8>> for ByteBuf {
     #[inline]
     fn from(bytes: Vec<u8>) -> Self {
@@ -156,7 +159,7 @@ impl From<Vec<u8>> for ByteBuf {
     }
 }
 
-#[cfg(feature = "std")]
+#[cfg(feature = "alloc")]
 impl RmpWrite for ByteBuf {
     type Error = core::convert::Infallible;
 
@@ -172,7 +175,10 @@ impl RmpWrite for ByteBuf {
         Ok(())
     }
 }
-#[cfg(feature = "std")]
+
+// when using std, RmpWrite is implemented for Vec through std::io::Write
+// without std, we have to implement it ourselves
+#[cfg(all(feature = "alloc", not(feature = "std")))]
 impl<'a> RmpWrite for Vec<u8> {
     type Error = core::convert::Infallible;
 

@@ -200,6 +200,7 @@ impl<T: std::io::Write> RmpWrite for T {
     }
 }
 
+// this conflicts with the impl for &mut std::io::Write on std
 #[cfg(not(feature = "std"))]
 impl<T: RmpWrite> RmpWrite for &mut T {
     type Error = T::Error;
