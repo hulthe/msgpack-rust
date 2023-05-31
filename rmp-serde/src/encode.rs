@@ -10,8 +10,7 @@ use serde::ser::{
 };
 use serde::Serialize;
 
-use rmp::encode::{ValueWriteError, RmpWrite, RmpWriteErr};
-use rmp::encode;
+use rmp::encode::{self, ValueWriteError, RmpWrite, RmpWriteErr};
 
 use crate::config::{
     BinaryConfig, DefaultConfig, HumanReadableConfig, SerializerConfig, StructMapConfig,
@@ -190,6 +189,25 @@ impl<'a, W: RmpWrite + 'a, C> Serializer<W, C> {
     }
 }
 
+#[cfg(feature = "std")]
+impl<'a, W: RmpWrite + 'a, C: SerializerConfig> Serializer<W, C> {
+    #[inline]
+    fn maybe_unknown_len_compound<F>(&'a mut self, len: Option<usize>, f: F) -> Result<MaybeUnknownLengthCompound<'a, W, C>, Error<W::Error>>
+    where F: Fn(&mut W, u32) -> Result<rmp::Marker, ValueWriteError<W::Error>>
+    {
+        Ok(MaybeUnknownLengthCompound {
+            compound: match len {
+                Some(len) => {
+                    f(&mut self.wr, len as u32)?;
+                    None
+                }
+                None => Some(UnknownLengthCompound::from(&*self)),
+            },
+            se: self,
+        })
+    }
+}
+
 impl<W, C> Serializer<W, C> {
     /// Consumes this serializer returning the new one, which will serialize structs as a map.
     ///
@@ -312,6 +330,7 @@ where W: RmpWrite + 'a,
     }
 }
 
+#[cfg(not(feature = "std"))]
 impl<'a, W, C> SerializeMap for Compound<'a, W, C>
 where W: RmpWrite + 'a,
       C: SerializerConfig,
@@ -465,7 +484,8 @@ impl<'a, W: RmpWrite + 'a, C: SerializerConfig> SerializeSeq for MaybeUnknownLen
         match self.compound.as_mut() {
             None => value.serialize(&mut *self.se),
             Some(buf) => {
-                value.serialize(&mut buf.se)?;
+                // TODO: buf.se uses a Vec<u8> and returns an std::io::Error
+                value.serialize(&mut buf.se).unwrap();
                 buf.elem_count += 1;
                 Ok(())
             }
@@ -475,7 +495,7 @@ impl<'a, W: RmpWrite + 'a, C: SerializerConfig> SerializeSeq for MaybeUnknownLen
     fn end(self) -> Result<Self::Ok, Self::Error> {
         if let Some(compound) = self.compound {
             encode::write_array_len(&mut self.se.wr, compound.elem_count)?;
-            self.se.wr.write_all(&compound.se.into_inner())
+            self.se.wr.write_bytes(&compound.se.into_inner())
                 .map_err(ValueWriteError::InvalidDataWrite)?;
         }
         Ok(())
@@ -498,7 +518,7 @@ impl<'a, W: RmpWrite + 'a, C: SerializerConfig> SerializeMap for MaybeUnknownLen
     fn end(self) -> Result<Self::Ok, Self::Error> {
         if let Some(compound) = self.compound {
             encode::write_map_len(&mut self.se.wr, compound.elem_count / 2)?;
-            self.se.wr.write_all(&compound.se.into_inner())
+            self.se.wr.write_bytes(&compound.se.into_inner())
                 .map_err(ValueWriteError::InvalidDataWrite)?;
         }
         Ok(())
@@ -513,13 +533,19 @@ where
     type Ok = ();
     type Error = Error<W::Error>;
 
-    //type SerializeSeq = MaybeUnknownLengthCompound<'a, W, C>;
+    #[cfg(feature = "std")]
+    type SerializeSeq = MaybeUnknownLengthCompound<'a, W, C>;
+    #[cfg(not(feature = "std"))]
     type SerializeSeq = Compound<'a, W, C>;
+
+    #[cfg(feature = "std")]
+    type SerializeMap = MaybeUnknownLengthCompound<'a, W, C>;
+    #[cfg(not(feature = "std"))]
+    type SerializeMap = Compound<'a, W, C>;
+
     type SerializeTuple = Compound<'a, W, C>;
     type SerializeTupleStruct = Compound<'a, W, C>;
     type SerializeTupleVariant = Compound<'a, W, C>;
-    //type SerializeMap = MaybeUnknownLengthCompound<'a, W, C>;
-    type SerializeMap = Compound<'a, W, C>;
     type SerializeStruct = Compound<'a, W, C>;
     type SerializeStructVariant = Compound<'a, W, C>;
 
@@ -645,11 +671,16 @@ where
         value.serialize(self)
     }
 
+    #[cfg(not(feature = "std"))]
     fn serialize_seq(self, len: Option<usize>) -> Result<Self::SerializeSeq, Self::Error> {
         let len = len.ok_or(Error::UnknownLength)?;
         encode::write_array_len(&mut self.wr, len as u32)?;
-
         self.compound()
+    }
+
+    #[cfg(feature = "std")]
+    fn serialize_seq(self, len: Option<usize>) -> Result<Self::SerializeSeq, Self::Error> {
+        self.maybe_unknown_len_compound(len, |wr, len| encode::write_array_len(wr, len))
     }
 
     //TODO: normal compund
@@ -676,11 +707,15 @@ where
         self.serialize_tuple(len)
     }
 
+    #[cfg(not(feature = "std"))]
     fn serialize_map(self, len: Option<usize>) -> Result<Self::SerializeMap, Self::Error> {
         let len = len.ok_or(Error::UnknownLength)?;
         encode::write_map_len(&mut self.wr, len as u32)?;
-
         self.compound()
+    }
+    #[cfg(feature = "std")]
+    fn serialize_map(self, len: Option<usize>) -> Result<Self::SerializeMap, Self::Error> {
+        self.maybe_unknown_len_compound(len, |wr, len| encode::write_map_len(wr, len))
     }
 
     fn serialize_struct(self, _name: &'static str, len: usize) ->
@@ -1168,7 +1203,7 @@ where
 /// Serialization can fail if `T`'s implementation of `Serialize` decides to fail.
 #[cfg(feature = "std")]
 #[inline]
-pub fn to_vec<T>(val: &T) -> Result<Vec<u8>, Error<(/*TODO*/)>>
+pub fn to_vec<T>(val: &T) -> Result<Vec<u8>, Error<std::io::Error>>
 where
     T: Serialize + ?Sized
 {
@@ -1185,7 +1220,7 @@ where
 /// Serialization can fail if `T`'s implementation of `Serialize` decides to fail.
 #[cfg(feature = "std")]
 #[inline]
-pub fn to_vec_named<T>(val: &T) -> Result<Vec<u8>, Error<(/*TODO*/)>>
+pub fn to_vec_named<T>(val: &T) -> Result<Vec<u8>, Error<std::io::Error>>
 where
     T: Serialize + ?Sized
 {

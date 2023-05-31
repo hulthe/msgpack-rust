@@ -70,8 +70,7 @@ impl<R: RmpReadErr> error::Error for Error<R> {
     fn source(&self) -> Option<&(dyn error::Error + 'static)> {
         match *self {
             Error::TypeMismatch(..) => None,
-            Error::InvalidMarkerRead(ref err) => Some(err),
-            Error::InvalidDataRead(ref err) => Some(err),
+            Error::InvalidValueRead(..) => None,
             Error::LengthMismatch(..) => None,
             Error::OutOfRange => None,
             Error::Uncategorized(..) => None,
@@ -84,9 +83,9 @@ impl<R: RmpReadErr> error::Error for Error<R> {
 
 impl<R: RmpReadErr> de::Error for Error<R> {
     #[cold]
-    fn custom<T: Display>(msg: T) -> Self {
+    fn custom<T: Display>(_msg: T) -> Self {
         #[cfg(feature = "std")]
-        return Error::Syntax(msg.to_string());
+        return Error::Syntax(_msg.to_string());
 
         #[cfg(not(feature = "std"))]
         return Error::Syntax();
@@ -933,16 +932,10 @@ impl<R: RmpRead> ReadReader<R> {
 #[cfg(feature = "std")]
 impl<'de, R: RmpRead> ReadSlice<'de> for ReadReader<R> {
     #[inline]
-    fn read_slice<'a>(&'a mut self, len: usize) -> Result<Reference<'de, 'a, [u8]>, Error<R::Error>> {
-        self.buf.clear();
-        let read = self.rd.by_ref().take(len as u64).read_to_end(&mut self.buf)?;
-        if read != len {
-            //return Err(io::ErrorKind::UnexpectedEof.into());
-            return Err(todo!());
-            return Err(Error::LengthMismatch {
-
-            });
-        }
+    fn read_slice<'a>(&'a mut self, len: usize) -> Result<Reference<'de, 'a, [u8]>, R::Error> {
+        self.buf = vec![0u8; len]; // TODO: this shouldn't pre-allocate, since that might be a DoS
+                                   // risk
+        self.rd.read_exact_buf(&mut self.buf)?;
 
         Ok(Reference::Copied(&self.buf[..]))
     }
@@ -950,44 +943,32 @@ impl<'de, R: RmpRead> ReadSlice<'de> for ReadReader<R> {
 
 #[cfg(feature = "std")]
 impl<R: RmpRead> RmpRead for ReadReader<R> {
-    /*
-    #[inline]
-    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
-        self.rd.read(buf)
-    }
-
-    #[inline]
-    fn read_exact(&mut self, buf: &mut [u8]) -> io::Result<()> {
-        self.rd.read_exact(buf)
-    }
-    */
-
-    type Error = R::Error; // TODO
+    type Error = R::Error;
 
     fn read_exact_buf(&mut self, buf: &mut [u8]) -> Result<(), Self::Error> {
-        todo!()
+        self.rd.read_exact_buf(buf)
     }
 }
 
 /// Borrowed reader wrapper.
 #[derive(Debug)]
 struct ReadRefReader<'a> {
-    whole_slice: &'a [u8],
+    //whole_slice: &'a [u8],
     buf: &'a [u8],
 }
 
 impl<'a> ReadRefReader<'a> {
-    /// Returns the part that hasn't been consumed yet
-    pub fn remaining_slice(&self) -> &'a [u8] {
-        self.buf
-    }
+    ///// Returns the part that hasn't been consumed yet
+    //pub fn remaining_slice(&self) -> &'a [u8] {
+    //    self.buf
+    //}
 }
 
 impl<'a> ReadRefReader<'a,> {
     #[inline]
     fn new(bytes: &'a [u8]) -> Self {
         Self {
-            whole_slice: bytes,
+            //whole_slice: bytes,
             buf: bytes,
         }
     }
@@ -1040,7 +1021,7 @@ fn test_as_ref_reader() {
 /// decides that something is wrong with the data, for example required struct fields are missing.
 #[inline]
 #[cfg(feature = "std")]
-pub fn from_read<R, T>(rd: R) -> Result<T, Error<()>> // TODO
+pub fn from_read<R, T>(rd: R) -> Result<T, Error<R::Error>>
 where R: RmpRead,
       T: DeserializeOwned
 {
