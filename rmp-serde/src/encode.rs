@@ -1,15 +1,16 @@
 //! Serialize a Rust data structure into MessagePack data.
 
 use core::fmt::{self, Display, Debug};
+#[cfg(feature = "std")]
+use std::error;
 
-use serde;
 use serde::ser::{
     SerializeMap, SerializeSeq, SerializeStruct, SerializeStructVariant, SerializeTuple,
     SerializeTupleStruct, SerializeTupleVariant,
 };
 use serde::Serialize;
 
-use rmp::encode::{ValueWriteError, RmpWrite};
+use rmp::encode::{ValueWriteError, RmpWrite, RmpWriteErr};
 use rmp::encode;
 
 use crate::config::{
@@ -24,15 +25,12 @@ use crate::MSGPACK_EXT_STRUCT_NAME;
 pub enum Error<W> {
     /// Failed to write a MessagePack value.
     InvalidValueWrite(ValueWriteError<W>),
-    //TODO: This can be removed at some point
     /// Failed to serialize struct, sequence or map, because its length is unknown.
     UnknownLength,
     /// Invalid Data model, i.e. Serialize trait is not implmented correctly
     InvalidDataModel(&'static str),
     /// Depth limit exceeded
     DepthLimitExceeded,
-    /// Writer error
-    Writer(W),
     /// Catchall for syntax error messages.
     #[cfg(feature = "std")]
     Syntax(String),
@@ -42,7 +40,7 @@ pub enum Error<W> {
 }
 
 #[cfg(feature = "std")]
-impl error::Error for Error {
+impl<W: RmpWriteErr> error::Error for Error<W> {
     #[cold]
     fn source(&self) -> Option<&(dyn error::Error + 'static)> {
         match *self {
@@ -71,7 +69,6 @@ impl<W: Display> Display for Error<W> {
             }
             Error::InvalidDataModel(r) => write!(f, "serialize data model is invalid: {}", r),
             Error::DepthLimitExceeded => f.write_str("depth limit exceeded"),
-            Error::Writer(ref writer_err) => writer_err.fmt(f),
             #[cfg(feature = "std")]
             Error::Syntax(ref msg) => f.write_str(msg),
             #[cfg(not(feature = "std"))]
@@ -80,7 +77,7 @@ impl<W: Display> Display for Error<W> {
     }
 }
 
-impl<W: Debug + Display> serde::ser::Error for Error<W> {
+impl<W: RmpWriteErr> serde::ser::Error for Error<W> {
     /// Raised when there is general error when deserializing a type.
     #[cold]
     fn custom<T: Display>(msg: T) -> Error<W> {
@@ -99,7 +96,7 @@ impl<W: Debug + Display> serde::ser::Error for Error<W> {
 pub trait UnderlyingWrite {
     /// Underlying writer type.
     #[cfg(feature = "std")]
-    type Write: Write;
+    type Write: RmpWrite;
     #[cfg(not(feature = "std"))]
     type Write: RmpWrite;
 
@@ -460,9 +457,9 @@ pub struct MaybeUnknownLengthCompound<'a, W: 'a, C: 'a> {
 }
 
 #[cfg(feature = "std")]
-impl<'a, W: Write + 'a, C: SerializerConfig> SerializeSeq for MaybeUnknownLengthCompound<'a, W, C> {
+impl<'a, W: RmpWrite + 'a, C: SerializerConfig> SerializeSeq for MaybeUnknownLengthCompound<'a, W, C> {
     type Ok = ();
-    type Error = Error;
+    type Error = Error<W::Error>;
 
     fn serialize_element<T: ?Sized + Serialize>(&mut self, value: &T) -> Result<(), Self::Error> {
         match self.compound.as_mut() {
@@ -486,9 +483,9 @@ impl<'a, W: Write + 'a, C: SerializerConfig> SerializeSeq for MaybeUnknownLength
 }
 
 #[cfg(feature = "std")]
-impl<'a, W: Write + 'a, C: SerializerConfig> SerializeMap for MaybeUnknownLengthCompound<'a, W, C> {
+impl<'a, W: RmpWrite + 'a, C: SerializerConfig> SerializeMap for MaybeUnknownLengthCompound<'a, W, C> {
     type Ok = ();
-    type Error = Error;
+    type Error = Error<W::Error>;
 
     fn serialize_key<T: ?Sized + Serialize>(&mut self, key: &T) -> Result<(), Self::Error> {
         <Self as SerializeSeq>::serialize_element(self, key)
@@ -740,7 +737,7 @@ where
         let mut result= Ok(());
         let mut writer = FmtWriter { r: &mut result, wr: &mut self.wr };
         write!(&mut writer, "{value}").ok();
-        result.map_err(Error::Writer)
+        result.map_err(ValueWriteError::InvalidDataWrite).map_err(Error::InvalidValueWrite)
     }
 }
 
@@ -1171,7 +1168,7 @@ where
 /// Serialization can fail if `T`'s implementation of `Serialize` decides to fail.
 #[cfg(feature = "std")]
 #[inline]
-pub fn to_vec<T>(val: &T) -> Result<Vec<u8>, Error>
+pub fn to_vec<T>(val: &T) -> Result<Vec<u8>, Error<(/*TODO*/)>>
 where
     T: Serialize + ?Sized
 {
@@ -1188,7 +1185,7 @@ where
 /// Serialization can fail if `T`'s implementation of `Serialize` decides to fail.
 #[cfg(feature = "std")]
 #[inline]
-pub fn to_vec_named<T>(val: &T) -> Result<Vec<u8>, Error>
+pub fn to_vec_named<T>(val: &T) -> Result<Vec<u8>, Error<(/*TODO*/)>>
 where
     T: Serialize + ?Sized
 {

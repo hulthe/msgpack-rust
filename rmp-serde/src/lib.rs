@@ -66,15 +66,15 @@ use serde::de;
 use serde::{Deserialize, Serialize};
 
 #[cfg(feature = "std")]
-pub use crate::decode::{from_slice, from_read, Deserializer};
+pub use crate::decode::{from_read, Deserializer};
+pub use crate::decode::from_slice;
+
 #[allow(deprecated)]
 #[cfg(feature = "std")]
-pub use crate::decode::from_read_ref;
-#[cfg(feature = "std")]
 pub use crate::encode::{to_vec, to_vec_named, Serializer};
+pub use crate::encode::{write, write_named};
 
 pub mod config;
-#[cfg(feature = "std")]
 pub mod decode;
 pub mod encode;
 
@@ -97,35 +97,33 @@ pub const MSGPACK_EXT_STRUCT_NAME: &str = "_ExtStruct";
 /// invalid UTF-8.
 ///
 /// Regardless of validity the UTF-8 content this type will always be serialized as a string.
-#[cfg(feature = "std")]
 #[derive(Clone, Debug, PartialEq)]
 #[doc(hidden)]
-pub struct Raw {
-    s: Result<String, (Vec<u8>, Utf8Error)>,
+pub enum Raw<'a> {
+    Borrowed {
+        s: Result<&'a str, (&'a [u8], Utf8Error)>,
+    },
+
+    #[cfg(feature = "std")]
+    Owned {
+        s: Result<String, (Vec<u8>, Utf8Error)>,
+    },
 }
 
-#[cfg(not(feature = "std"))]
-#[derive(Clone, Debug, PartialEq)]
-#[doc(hidden)]
-pub struct Raw<'a> {
-    s: Result<&'a str, (&'a [u8], Utf8Error)>,
-}
-
-#[cfg(not(feature = "std"))]
 impl<'a> Raw<'a> {
     /// Constructs a new `Raw` from the UTF-8 string.
     #[inline]
-    pub fn new(v: &'a str) -> Self {
-        Self { s: Ok(v) }
+    pub fn new_borrowed(v: &'a str) -> Self {
+        Self::Borrowed { s: Ok(v) }
     }
 }
 
 #[cfg(feature = "std")]
-impl Raw {
+impl Raw<'_> {
     /// Constructs a new `Raw` from the UTF-8 string.
     #[inline]
     pub fn new(v: String) -> Self {
-        Self { s: Ok(v) }
+        Self::Owned { s: Ok(v) }
     }
 
     /// DO NOT USE. See <https://github.com/3Hren/msgpack-rust/issues/305>
@@ -135,7 +133,7 @@ impl Raw {
             Ok(v) => Raw::new(v),
             Err(err) => {
                 let e = err.utf8_error();
-                Self {
+                Self::Owned {
                     s: Err((err.into_bytes(), e)),
                 }
             }
@@ -147,24 +145,23 @@ impl Raw<'_> {
     /// Returns `true` if the raw is valid UTF-8.
     #[inline]
     pub fn is_str(&self) -> bool {
-        self.s.is_ok()
+        self.as_str().is_some()
     }
 
     /// Returns `true` if the raw contains invalid UTF-8 sequence.
     #[inline]
     pub fn is_err(&self) -> bool {
-        self.s.is_err()
+        self.as_str().is_none()
     }
 
     /// Returns the string reference if the raw is valid UTF-8, or else `None`.
     #[inline]
     pub fn as_str(&self) -> Option<&str> {
-        match self.s {
+        match self {
+            Self::Borrowed { s: Ok(s) } => Some(s),
             #[cfg(feature = "std")]
-            Ok(ref s) => Some(s.as_str()),
-            #[cfg(not(feature = "std"))]
-            Ok(s) => Some(s),
-            Err(..) => None,
+            Self::Owned { s: Ok(ref s) } => Some(s.as_str()),
+            _ => None,
         }
     }
 
@@ -172,18 +169,25 @@ impl Raw<'_> {
     /// else `None`.
     #[inline]
     pub fn as_err(&self) -> Option<&Utf8Error> {
-        match self.s {
-            Ok(..) => None,
-            Err((_, ref err)) => Some(err),
+        match self {
+            Self::Borrowed  { s : Err((_, ref err)) } => Some(err),
+            #[cfg(feature = "std")]
+            Self::Owned  { s : Err((_, ref err)) } => Some(err),
+            _ => None,
         }
     }
 
     /// Returns a byte slice of this raw's contents.
     #[inline]
     pub fn as_bytes(&self) -> &[u8] {
-        match self.s {
-            Ok(ref s) => s.as_bytes(),
-            Err(ref err) => &err.0[..],
+        match self {
+            Self::Borrowed  { s : Err(ref err) } => err.0,
+            Self::Borrowed { s: Ok(s) } => s.as_bytes(),
+
+            #[cfg(feature = "std")]
+            Self::Owned  { s : Err(ref err) } => &err.0,
+            #[cfg(feature = "std")]
+            Self::Owned { s: Ok(ref s) } => s.as_bytes(),
         }
     }
 
@@ -191,16 +195,22 @@ impl Raw<'_> {
     #[cfg(feature = "std")]
     #[inline]
     pub fn into_str(self) -> Option<String> {
-        self.s.ok()
+        match self {
+            Self::Owned { s } => s.ok(),
+            Self::Borrowed { s: Ok(s) } => Some(s.to_string()),
+            _ => None,
+        }
     }
 
     /// Converts a `Raw` into a byte vector.
     #[cfg(feature = "std")]
     #[inline]
     pub fn into_bytes(self) -> Vec<u8> {
-        match self.s {
-            Ok(s) => s.into_bytes(),
-            Err(err) => err.0,
+        match self{
+            Self::Borrowed  { s : Err(ref err) } => err.0.to_vec(),
+            Self::Borrowed { s: Ok(s) } => s.as_bytes().to_vec(),
+            Self::Owned  { s : Err(err) } => err.0,
+            Self::Owned { s: Ok(s) } => s.into_bytes(),
         }
     }
 }
@@ -210,9 +220,10 @@ impl Serialize for Raw<'_> {
     where
         S: serde::Serializer
     {
-        match self.s {
-            Ok(ref s) => se.serialize_str(s),
-            Err((ref b, ..)) => se.serialize_bytes(b),
+        if let Some(s) = self.as_str() {
+            se.serialize_str(s)
+        } else {
+            se.serialize_bytes(self.as_bytes())
         }
     }
 }
@@ -230,7 +241,7 @@ impl<'de> de::Visitor<'de> for RawVisitor {
     #[cfg(feature = "std")]
     #[inline]
     fn visit_string<E>(self, v: String) -> Result<Self::Value, E> {
-        Ok(Raw { s: Ok(v) })
+        Ok(Raw::Owned { s: Ok(v) })
     }
 
     #[cfg(feature = "std")]
@@ -238,13 +249,13 @@ impl<'de> de::Visitor<'de> for RawVisitor {
     fn visit_str<E>(self, v: &str) -> Result<Self::Value, E>
         where E: de::Error
     {
-        Ok(Raw { s: Ok(v.into()) })
+        Ok(Raw::Owned { s: Ok(v.into()) })
     }
 
     fn visit_borrowed_str<E>(self, v: &'de str) -> Result<Self::Value, E>
         where
             E: de::Error, {
-        Ok(Raw { s: Ok(v) })
+        Ok(Raw::Borrowed { s: Ok(v) })
     }
 
     #[cfg(feature = "std")]
@@ -257,7 +268,7 @@ impl<'de> de::Visitor<'de> for RawVisitor {
             Err(err) => Err((v.into(), err)),
         };
 
-        Ok(Raw { s })
+        Ok(Raw::Owned { s })
     }
 
     fn visit_borrowed_bytes<E>(self, v: &'de [u8]) -> Result<Self::Value, E>
@@ -269,7 +280,7 @@ impl<'de> de::Visitor<'de> for RawVisitor {
             Err(err) => Err((v, err)),
         };
 
-        Ok(Raw { s })
+        Ok(Raw::Borrowed { s })
     }
 
     #[cfg(feature = "std")]
@@ -285,7 +296,7 @@ impl<'de> de::Visitor<'de> for RawVisitor {
             }
         };
 
-        Ok(Raw { s })
+        Ok(Raw::Owned { s })
     }
 }
 

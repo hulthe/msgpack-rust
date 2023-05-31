@@ -8,7 +8,7 @@ use crate::Marker;
 
 #[derive(Debug)]
 #[allow(deprecated)] // Only for compatibility
-pub enum DecodeStringError<'a, E: RmpReadErr = super::Error> {
+pub enum DecodeStringError<'a, E = super::Error> {
     InvalidMarkerRead(E),
     InvalidDataRead(E),
     TypeMismatch(Marker),

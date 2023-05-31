@@ -22,6 +22,7 @@ use core::fmt::{self, Display, Debug, Formatter};
 use crate::Marker;
 
 pub mod buffer;
+#[cfg(feature = "std")]
 pub use buffer::ByteBuf;
 
 #[doc(inline)]
@@ -104,6 +105,7 @@ pub fn write_bool<W: RmpWrite>(wr: &mut W, val: bool) -> Result<(), W::Error> {
     write_marker(wr, marker).map_err(|e| e.0)
 }
 
+/*
 mod sealed{
     pub trait Sealed {}
     #[cfg(feature = "std")]
@@ -116,6 +118,7 @@ mod sealed{
     impl<S: Sealed> Sealed for &mut S {}
     impl Sealed for super::ByteBuf {}
 }
+*/
 
 
 macro_rules! write_byteorder_utils {
@@ -140,10 +143,11 @@ macro_rules! write_byteorder_utils {
 /// The methods of this trait should be considered an implementation detail (for now).
 /// It is currently sealed (can not be implemented by the user).
 ///
-/// See also [std::uo::Write] and [byteorder::WriteBytesExt]
+/// See also [std::io::Write] and [byteorder::WriteBytesExt]
 ///
 /// Its primary implementations are [std::io::Write] and [ByteBuf].
-pub trait RmpWrite: sealed::Sealed {
+//pub trait RmpWrite: sealed::Sealed {
+pub trait RmpWrite {
     type Error: RmpWriteErr;
 
     /// Write a single byte to this stream

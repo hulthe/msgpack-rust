@@ -15,7 +15,7 @@ edition = "2021"
 tag-prefix = "{{crate_name}}/"
 
 [dependencies]
-byteorder = "1.4.3"
+byteorder = { version = "1.4.3", default-features = false }
 rmp = { version = "0.8.11", path = "../rmp", default-features = false }
 serde = { version = "1.0.136", default-features = false }
 
@@ -28,4 +28,4 @@ serde_derive = "1.0.136"
 maintenance = { status = "passively-maintained" }
 
 [features]
-std = ["serde/std", "rmp/std", "serde_bytes/std"]
+std = ["serde/std", "rmp/std", "serde_bytes/std", "byteorder/std"]

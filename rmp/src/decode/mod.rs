@@ -83,7 +83,8 @@ mod sealed{
 /// See also [std::io::Read] and [byteorder::ReadBytesExt]
 ///
 /// Its primary implementations are [std::io::Read] and [Bytes].
-pub trait RmpRead: sealed::Sealed {
+//pub trait RmpRead: sealed::Sealed {
+pub trait RmpRead {
     type Error: RmpReadErr;
     /// Read a single (unsigned) byte from this stream
     #[inline]
@@ -190,7 +191,7 @@ pub struct MarkerReadError<E: RmpReadErr = Error>(pub E);
 /// An error which can occur when attempting to read a MessagePack value from the reader.
 #[derive(Debug)]
 #[allow(deprecated)] // Needed for backwards compat
-pub enum ValueReadError<E: RmpReadErr = Error> {
+pub enum ValueReadError<E = Error> {
     /// Failed to read the marker.
     InvalidMarkerRead(E),
     /// Failed to read the data.
@@ -211,7 +212,7 @@ impl error::Error for ValueReadError {
     }
 }
 
-impl Display for ValueReadError {
+impl<R: Display> Display for ValueReadError<R> {
     #[cold]
     fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), fmt::Error> {
         // TODO: This should probably use formatting
@@ -298,7 +299,7 @@ pub fn read_bool<R: RmpRead>(rd: &mut R) -> Result<bool, ValueReadError<R::Error
 /// An error which can occur when attempting to read a MessagePack numeric value from the reader.
 #[derive(Debug)]
 #[allow(deprecated)] // Used for compatibility
-pub enum NumValueReadError<E: RmpReadErr = Error> {
+pub enum NumValueReadError<E = Error> {
     /// Failed to read the marker.
     InvalidMarkerRead(E),
     /// Failed to read the data.
