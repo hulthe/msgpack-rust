@@ -11,7 +11,6 @@ use std::{
     io::Cursor,
 };
 
-use rmp::decode::bytes::BytesReadError;
 use serde::forward_to_deserialize_any;
 use serde::de::{self, Deserialize, DeserializeSeed, Unexpected, Visitor};
 #[cfg(feature = "std")]
@@ -1064,6 +1063,8 @@ where
     let mut de = Deserializer::from_bytes(bytes);
     Deserialize::deserialize(&mut de)
 }
+
+pub use rmp::decode::bytes::BytesReadError;
 
 /*
 #[inline]
